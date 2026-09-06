@@ -154,7 +154,7 @@ async function fetchOne(key, spec) {
     const zipCmd =
       process.platform === "win32"
         ? { bin: "tar", args: ["-xf", cacheZip, "-C", spec.destDir] }
-        : { bin: "unzip", args: ["-q", cacheZip, "-d", spec.destDir] };
+        : { bin: "unzip", args: ["-q", "-o", cacheZip, "-d", spec.destDir] };
     execFileSync(zipCmd.bin, zipCmd.args, { stdio: "inherit" });
   }
 
