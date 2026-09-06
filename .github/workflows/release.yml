@@ -49,7 +49,10 @@ jobs:
 
   build:
     needs: create-release
-    if: ${{ needs.create-release.result != 'failure' }}
+    # create-release 仅在 tag 场景运行，dispatch 场景会被 skip；被 needs 的 job skip 会
+    # 让下游默认 if(success()) 一起 skip → 用 !cancelled() 显式放行 skipped 依赖链
+    # （success(tag) / skipped(dispatch) 都继续构建），保留 failure/cancelled 门禁
+    if: ${{ !cancelled() && needs.create-release.result != 'failure' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -16,7 +16,8 @@
 //   node scripts/fetch-vendor.mjs --check  # 只校验 vendor/ 现状（不下载）
 //
 // 依赖：gnupg 条目解压需要 7z（本地 scoop 7zip / CI 先 apt-get install -y p7zip-full）；
-// git/gh 条目解压用系统 tar（Windows bsdtar / ubuntu GNU tar 均支持 zip）。
+// git/gh 条目解压 zip 按平台：win32 的 tar 是 bsdtar（libarchive 支持 zip），
+// linux（CI ubuntu）的 tar 是 GNU tar 不支持 zip → 用 unzip（runner 预装）。
 //
 // 升级版本：改下方 VERSIONS 表（version/sha256），下载缓存命中按 sha256 判定，
 // 版本变了自然重新下载；升级后同步更新 README 的「内嵌运行时」注记。
@@ -148,7 +149,13 @@ async function fetchOne(key, spec) {
     log("解压（7z 取 bin/）→", spec.destDir.replace(ROOT, "."));
   } else {
     log("解压 →", spec.destDir.replace(ROOT, "."));
-    execFileSync("tar", ["-xf", cacheZip, "-C", spec.destDir], { stdio: "inherit" });
+    // zip 解压平台分支：win32 的 tar = bsdtar（libarchive，支持 zip）；
+    // linux（CI ubuntu）的 tar = GNU tar（不支持 zip）→ 用 unzip（runner 预装）
+    const zipCmd =
+      process.platform === "win32"
+        ? { bin: "tar", args: ["-xf", cacheZip, "-C", spec.destDir] }
+        : { bin: "unzip", args: ["-q", cacheZip, "-d", spec.destDir] };
+    execFileSync(zipCmd.bin, zipCmd.args, { stdio: "inherit" });
   }
 
   // 4) exe 存在性验证
