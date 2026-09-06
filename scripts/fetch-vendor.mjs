@@ -1,16 +1,22 @@
 // scripts/fetch-vendor.mjs — github-toolkit 内嵌运行时下载脚本（零依赖）
 //
-// 背景：插件不依赖机器装好的 git/gh（对齐 dsh-hanako「用宿主 node」的自包含考量），
+// 背景：插件不依赖机器装好的 git/gh/gpg（对齐 dsh-hanako「用宿主 node」的自包含考量），
 // 改为内联官方二进制（vendor/，见 tools/lib/bin.js）：
 //   - vendor/git/  ← MinGit（Git for Windows 官方精简嵌入版，VS Code 同款）
 //   - vendor/gh/   ← gh CLI 官方 release 单文件
+//   - vendor/gnupg/ ← GnuPG 官方 w32 二进制（NSIS/7z 容器，scoop gnupg 同源）；
+//                     只取 bin/（弃 locale/lib/include/卸载器，对齐本地 vendor 形态）
 // 二进制不入 git 仓库；安装/打包前跑本脚本补全 vendor/（sha256 校验，失败即拒绝）。
 //
 // 用法：
-//   node scripts/fetch-vendor.mjs          # 全量（git + gh）
+//   node scripts/fetch-vendor.mjs          # 全量（git + gh + gnupg）
 //   node scripts/fetch-vendor.mjs git      # 只补 git
 //   node scripts/fetch-vendor.mjs gh       # 只补 gh
+//   node scripts/fetch-vendor.mjs gnupg    # 只补 gnupg
 //   node scripts/fetch-vendor.mjs --check  # 只校验 vendor/ 现状（不下载）
+//
+// 依赖：gnupg 条目解压需要 7z（本地 scoop 7zip / CI 先 apt-get install -y p7zip-full）；
+// git/gh 条目解压用系统 tar（Windows bsdtar / ubuntu GNU tar 均支持 zip）。
 //
 // 升级版本：改下方 VERSIONS 表（version/sha256），下载缓存命中按 sha256 判定，
 // 版本变了自然重新下载；升级后同步更新 README 的「内嵌运行时」注记。
@@ -19,7 +25,7 @@
 // （asset 名带平台后缀，dest 落到 vendor/<platform>/，bin.js resolveBin 按 platform 选）。
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdirSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, rmSync, cpSync, copyFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +55,16 @@ const VERSIONS = {
     sha256: "19a7154161ada9cfaa9e57edb752ecc679b75c391a62e4f7b586eea1df30b5bb",
     destDir: join(ROOT, "vendor", "gh"),
     verifyExe: join(ROOT, "vendor", "gh", "bin", "gh.exe"),
+  },
+  gnupg: {
+    label: "GnuPG",
+    version: "2.5.21",
+    asset: "gnupg-w32-2.5.21_20260702.exe",
+    url: "https://www.gnupg.org/ftp/gcrypt/binary/gnupg-w32-2.5.21_20260702.exe",
+    sha256: "6246c925a73167253444afc24a0deb83a3f43b7d636af84d6aaf48a98a62f024",
+    destDir: join(ROOT, "vendor", "gnupg"),
+    verifyExe: join(ROOT, "vendor", "gnupg", "bin", "gpg.exe"),
+    extract: "gnupg7z", // NSIS/7z 容器：7z 解到临时目录 → 只取 bin/（对齐本地 vendor 形态）
   },
 };
 
@@ -110,10 +126,30 @@ async function fetchOne(key, spec) {
     log("sha256 校验通过");
   }
 
-  // 3) 解压到 destDir（Windows 自带 bsdtar 支持 zip；零第三方依赖）
+  // 3) 解压到 destDir（零第三方依赖）：git/gh 用系统 tar（Windows bsdtar / ubuntu GNU
+  //    tar 均支持 zip）；gnupg 是 NSIS/7z 容器（scoop 同源），需要 7z，只取 bin/
   mkdirSync(spec.destDir, { recursive: true });
-  log("解压 →", spec.destDir.replace(ROOT, "."));
-  execFileSync("tar", ["-xf", cacheZip, "-C", spec.destDir], { stdio: "inherit" });
+  if (spec.extract === "gnupg7z") {
+    const tmp = join(ROOT, "_tmp", "gnupg-x");
+    rmSync(tmp, { recursive: true, force: true });
+    mkdirSync(tmp, { recursive: true });
+    execFileSync("7z", ["x", cacheZip, "-o" + tmp, "-y"], { stdio: "inherit" });
+    const binDir = join(spec.destDir, "bin");
+    rmSync(spec.destDir, { recursive: true, force: true });
+    mkdirSync(binDir, { recursive: true });
+    cpSync(join(tmp, "bin"), binDir, { recursive: true });
+    // 清 NSIS 中间态残留（*.exe.tmp——安装器运行时才改名的冗余文件），对齐本地 vendor 形态
+    for (const f of readdirSync(binDir)) {
+      if (f.endsWith(".exe.tmp")) rmSync(join(binDir, f), { force: true });
+    }
+    // scoop 同款：gpg.exe → gpg2.exe（对齐本地 vendor/gnupg 形态）
+    copyFileSync(join(binDir, "gpg.exe"), join(binDir, "gpg2.exe"));
+    rmSync(tmp, { recursive: true, force: true });
+    log("解压（7z 取 bin/）→", spec.destDir.replace(ROOT, "."));
+  } else {
+    log("解压 →", spec.destDir.replace(ROOT, "."));
+    execFileSync("tar", ["-xf", cacheZip, "-C", spec.destDir], { stdio: "inherit" });
+  }
 
   // 4) exe 存在性验证
   if (!existsSync(spec.verifyExe)) {
