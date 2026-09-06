@@ -1,0 +1,23 @@
+{
+  "manifestVersion": 2,
+  "id": "github-hanako",
+  "name": "GitHana",
+  "version": "0.1.0",
+  "description": "Git & GitHub tools for HanaAgent",
+  "author": "Nyaser",
+  "minAppVersion": "0.810.0",
+  "trust": "full-access",
+  "ui": {
+    "hostCapabilities": ["clipboard.writeText"]
+  },
+  "entry": "index.js",
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "configuration": {
+      "title": "GitHana 设置",
+      "properties": {
+        "token": { "type": "string", "default": "", "title": "GitHub PAT" }
+      }
+    }
+  }
+}

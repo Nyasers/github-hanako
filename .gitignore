@@ -1,0 +1,13 @@
+# 依赖与构建产物
+node_modules/
+
+# 内嵌运行时二进制（scripts/fetch-vendor.mjs 下载，不入库，打包时随包分发）
+vendor/
+
+# 打包产物（pack 中间原料 _tmp/ 与发布包 releases/）
+_tmp/
+releases/
+
+# 系统杂项
+*.log
+.DS_Store

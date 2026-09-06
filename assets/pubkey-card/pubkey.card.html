@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>签名公钥</title>
+<style>
+  /* GitHana pubkey 卡页（v3 会话流路由卡）。
+     宿主经 hana-css query 注入主题 stylesheet（提供 --bg/--text/--border/--accent/--font-* 等变量）；
+     变量未注入（脱离宿主独立打开）时用 var() 默认值兜底浅色纸张。 */
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font-serif, "Noto Serif SC", "Songti SC", serif);
+    background: var(--bg, #faf9f5);
+    color: var(--text, #2b2925);
+    padding: 16px 18px 10px;
+    line-height: 1.55;
+    font-size: 14px;
+  }
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--text, #2b2925);
+    margin: 0 0 2px;
+  }
+  .card-sub {
+    font-size: 12px;
+    color: var(--text-muted, #8a867e);
+    margin: 0 0 12px;
+  }
+  .fpr-row {
+    font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    background: var(--bg-card, #f2efe8);
+    border: 1px solid var(--border, #e3dfd6);
+    border-radius: var(--radius-chat-card-inner, 10px);
+    padding: 8px 12px;
+    word-break: break-all;
+    user-select: all;
+  }
+  .uid-row {
+    font-size: 13px;
+    color: var(--text-light, #5c5850);
+    margin: 8px 2px 0;
+  }
+  .copy-btn {
+    display: block;
+    width: 100%;
+    margin: 12px 0 4px;
+    padding: 9px 12px;
+    font-family: var(--font-ui, system-ui, sans-serif);
+    font-size: 13.5px;
+    background: var(--accent, #4a5cc5);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-chat-card-inner, 10px);
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .copy-btn:hover:not(:disabled) { background: var(--accent-hover, #3c4db0); }
+  .copy-btn:disabled { opacity: 0.75; cursor: default; }
+  .copy-btn.ok { background: var(--green, #3f8f5f); }
+  .copy-btn.fail { background: var(--danger, #b0453e); }
+  details {
+    margin: 6px 0 0;
+    border: 1px solid var(--border, #e3dfd6);
+    border-radius: var(--radius-chat-card-inner, 10px);
+    background: var(--bg-card, #f2efe8);
+  }
+  details summary {
+    padding: 7px 12px;
+    font-size: 12.5px;
+    color: var(--text-light, #5c5850);
+    cursor: pointer;
+    user-select: none;
+  }
+  details[open] summary { border-bottom: 1px solid var(--border, #e3dfd6); }
+  pre.pubkey {
+    margin: 0;
+    padding: 10px 12px;
+    font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 190px;
+    overflow: auto;
+    color: var(--text, #2b2925);
+  }
+  .steps {
+    margin: 12px 0 2px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--accent, #4a5cc5);
+    background: var(--bg-card, #f2efe8);
+    border-radius: 0 var(--radius-chat-card-inner, 8px) var(--radius-chat-card-inner, 8px) 0;
+    font-size: 12.5px;
+    color: var(--text-light, #5c5850);
+  }
+  .steps b { color: var(--text, #2b2925); font-weight: 600; }
+  .steps ol { margin: 4px 0 0; padding-left: 18px; }
+  .steps li { margin: 1px 0; }
+  .steps code {
+    font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+    font-size: 11.5px;
+    background: var(--bg, #faf9f5);
+    border: 1px solid var(--border, #e3dfd6);
+    border-radius: 4px;
+    padding: 0 4px;
+  }
+  .empty-box {
+    border: 1px dashed var(--border, #d8d4ca);
+    border-radius: var(--radius-chat-card-inner, 10px);
+    padding: 14px 14px 12px;
+    background: var(--bg-card, #f2efe8);
+  }
+  .empty-box .t { font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
+  .empty-box .d { font-size: 12.5px; color: var(--text-light, #5c5850); }
+  .empty-box code {
+    font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+    font-size: 12px;
+    background: var(--bg, #faf9f5);
+    border: 1px solid var(--border, #e3dfd6);
+    border-radius: 4px;
+    padding: 0 4px;
+  }
+  .foot {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-muted, #8a867e);
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+<script id="pubkey-data" type="application/json">__DATA__</script>
+
+<div id="card-root"></div>
+
+<script>
+(function () {
+  "use strict";
+  var DATA = null;
+  try { DATA = JSON.parse(document.getElementById("pubkey-data").textContent || "null"); } catch (e) { DATA = null; }
+
+  /* ---------- mini host SDK：ui.resize 高度自适应（@hana/plugin-sdk 协议兼容，免构建） ---------- */
+  var PARENT = window.parent;
+  var pageParams = new URLSearchParams(window.location.search);
+  var HOST_ORIGIN = pageParams.get("hana-host-origin") || "*";
+  function reportSize() {
+    try {
+      // +16px 余量：实测宿主 card iframe = 上报 - 16（对齐 dsh-hanako assets/card.js 注记）
+      var h = Math.ceil(document.body ? document.body.scrollHeight : 0) + 16;
+      if (!h || h < 40) h = 40;
+      PARENT.postMessage(
+        { protocol: "hana.plugin.ui", version: 1, kind: "event", type: "ui.resize",
+          payload: { width: 400, height: h } },
+        HOST_ORIGIN
+      );
+    } catch (e) { /* 忽略 */ }
+  }
+  window.addEventListener("load", function () { setTimeout(reportSize, 60); });
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { setTimeout(reportSize, 50); });
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    var roTimer = null;
+    new ResizeObserver(function () {
+      if (roTimer) clearTimeout(roTimer);
+      roTimer = setTimeout(reportSize, 60);
+    }).observe(document.body);
+  }
+
+  /* ---------- hostRequest：向宿主请求已声明能力（clipboard.writeText，manifest ui.hostCapabilities） ---------- */
+  function hostRequest(type, payload, timeoutMs) {
+    return new Promise(function (resolve, reject) {
+      var id = "req_" + Math.random().toString(36).slice(2) + Date.now();
+      var done = false;
+      var timer = setTimeout(function () { if (!done) { done = true; reject(new Error("宿主响应超时")); } }, timeoutMs || 8000);
+      function onMsg(e) {
+        var d = e && e.data;
+        if (!d || d.protocol !== "hana.plugin.ui" || d.id !== id) return;
+        done = true;
+        clearTimeout(timer);
+        window.removeEventListener("message", onMsg);
+        if (d.kind === "response") resolve(d.payload);
+        else if (d.kind === "error") reject(new Error(d.error || "宿主拒绝该能力请求"));
+        else reject(new Error("未知回执"));
+      }
+      window.addEventListener("message", onMsg);
+      try {
+        PARENT.postMessage({ protocol: "hana.plugin.ui", version: 1, id: id, kind: "request", type: type, payload: payload }, HOST_ORIGIN);
+      } catch (e) { reject(e); }
+    });
+  }
+
+  /* ---------- 渲染 ---------- */
+  var root = document.getElementById("card-root");
+  if (!DATA || typeof DATA.hasKey !== "boolean") DATA = { hasKey: false };
+
+  if (!DATA.hasKey) {
+    // 空态：尚未生成密钥 → 引导先跑 gpg_keygen（工具生成后再次调用 gpg_pubkey 即出卡）
+    root.innerHTML =
+      '<div class="empty-box">' +
+        '<div class="t">尚未生成签名密钥</div>' +
+        '<div class="d">先运行工具 <code>gpg_keygen</code> 初始化隔离 git/GPG 环境（自动推导身份并生成 ed25519 密钥），' +
+        '完成后再次调用 <code>gpg_pubkey</code>，本卡会带出真实公钥。</div>' +
+      '</div>';
+  } else {
+    var fpr = DATA.fpr || "";
+    var uid = DATA.uid || "";
+    var pubkey = DATA.pubkey || "";
+    var html =
+      '<div class="card-title">GPG 签名公钥</div>' +
+      '<div class="card-sub">' + (fpr ? "完整指纹 " + fpr.slice(0, 8) + "…" + fpr.slice(-8) : "") + '</div>' +
+      (fpr ? '<div class="fpr-row">' + esc(fpr) + '</div>' : "") +
+      (uid ? '<div class="uid-row">' + esc(uid) + '</div>' : "") +
+      '<button type="button" class="copy-btn" id="copy-btn">复制公钥到剪贴板</button>' +
+      '<details id="pubkey-block"><summary>查看公钥全文</summary><pre class="pubkey">' + esc(pubkey) + '</pre></details>' +
+      '<div class="steps"><b>上传 GitHub 验证签名</b>' +
+        '<ol>' +
+          '<li>点上方按钮复制公钥全文（或展开后手动选择复制）</li>' +
+          '<li>打开 GitHub：<code>Settings → SSH and GPG keys → New GPG key</code></li>' +
+          '<li>粘贴保存，此后本插件的签名提交即显示 <code>Verified</code></li>' +
+        '</ol>' +
+      '</div>';
+    root.innerHTML = html;
+
+    var btn = document.getElementById("copy-btn");
+    var btnTxt = btn.textContent;
+
+    /* 选区复制兑底（execCommand）：临时 textarea 选中 + document.execCommand("copy")，
+       旧浏览器 / 受限上下文（原生 API 与宿主桥均不可用）的最后尝试。 */
+    function fallbackSelectCopy(text) {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        var ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok ? Promise.resolve() : Promise.reject(new Error("execCommand copy 失败"));
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
+
+    /* 多层降级复制链。
+       宿主能力表里 clipboard.writeText 的 allowedSlots = [page, widget, settings]（不含 card）——
+       本卡是会话流卡（card slot），宿主桥在此面必被拒；因此：
+       1) 原生 Clipboard API 优先（card iframe 同源 + 用户手势内最直接）；
+       2) 宿主桥 hana.plugin.ui clipboard.writeText（page/widget/settings 面正道，此处兼容）；
+       3) execCommand 选区复制兑底。
+       全败 → reject，按钮展开全文提示手动复制。 */
+    function copyText(text) {
+      function attempt(i) {
+        if (i === 0) {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text).then(
+              function () { return "原生剪贴板"; },
+              function () { return attempt(1); }
+            );
+          }
+          return attempt(1);
+        }
+        if (i === 1) {
+          return hostRequest("clipboard.writeText", { text: text }, 8000).then(
+            function () { return "宿主桥"; },
+            function () { return attempt(2); }
+          );
+        }
+        if (i === 2) {
+          return fallbackSelectCopy(text).then(
+            function () { return "选区复制"; },
+            function () { return attempt(3); }
+          );
+        }
+        return Promise.reject(new Error("所有复制通道均失败"));
+      }
+      return attempt(0);
+    }
+
+    btn.addEventListener("click", function () {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      copyText(pubkey)
+        .then(function () {
+          btn.classList.add("ok");
+          btn.textContent = "已复制到剪贴板";
+          setTimeout(function () { btn.classList.remove("ok"); btn.textContent = btnTxt; btn.disabled = false; }, 1800);
+        })
+        .catch(function () {
+          // 三层全败（脱离宿主 / 宿主 card 面拒能力 / 浏览器链路被拒）：展开全文提示手动复制
+          btn.classList.add("fail");
+          btn.textContent = "复制失败，请展开下方全文手动复制（Ctrl+C）";
+          var d = document.getElementById("pubkey-block");
+          if (d) d.open = true;
+          setTimeout(function () { btn.classList.remove("fail"); btn.textContent = btnTxt; btn.disabled = false; }, 2600);
+        });
+    });
+  }
+  setTimeout(reportSize, 30);
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+})();
+</script>
+</body>
+</html>
