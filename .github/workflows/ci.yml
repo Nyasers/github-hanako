@@ -175,14 +175,21 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -e
-          # Create release 未执行成功（fetch/package 失败在 create 前）→ 无 release 需清理
-          if [ "${{ steps.create.outcome }}" != "success" ]; then
+          # 仅 create-release 被跳过（fetch/package 失败在 create 前）→ 确定无 release
+          if [ "${{ steps.create.outcome }}" == "skipped" ]; then
             echo "create-release 未执行（此前步骤失败），无残缺 release"
             exit 0
           fi
-          # create 成功则 release 必存在；view 失败 = API 错误，propagate（不误判不存在）
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::error::release $TAG 查询失败（create 已成功但 view 报错）"
+          # create success / failure 均查证：success 后必存在；failure 可能半建
+          # （gh release create 是 draft→upload→publish 多步，中途失败留孤儿）
+          # 用 gh api 404 精确区分「不存在」与「API 错误」，错误 propagate
+          if ! gh api "repos/{owner}/{repo}/releases/tags/$TAG" >/dev/null 2>&1; then
+            MSG=$(gh api "repos/{owner}/{repo}/releases/tags/$TAG" 2>&1 >/dev/null || true)
+            if echo "$MSG" | grep -qi 'not found'; then
+              echo "release $TAG 不存在（create 未留下半成品），无需清理"
+              exit 0
+            fi
+            echo "::error::release $TAG 查询失败（outcome=${{ steps.create.outcome }}）：$MSG"
             exit 1
           fi
           # 资产名 = pkgId + "-v" + version（pack.mjs），version 段带 v 前缀与 tag 一致
