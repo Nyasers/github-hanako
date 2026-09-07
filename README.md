@@ -4,7 +4,7 @@ Git & GitHub tools for HanaAgent：把 git / gh / gpg 三条 CLI 接进 Hana，�
 
 - 形态：full-access 插件（`tools/` 由宿主自动扫描注册 + entry 注册卡路由）
 - 工具命名空间：`git_*`（git 操作）· `gh_*`（GitHub CLI）· `gpg_*`（隔离 GPG 身份/公钥）
-- 版本：0.1.0 · 零 npm 依赖 · vendor 内嵌 git/gh/gnupg 随包分发（不入 git 仓库）
+- 零 npm 依赖 · vendor 内嵌 git/gh/gnupg 随包分发（不入 git 仓库）· 版本见 manifest.json（单一事实源）
 
 ## 工具清单
 
@@ -62,7 +62,7 @@ gpg-agent 被自动拉起后默认常驻，还会按需拉起同环 scdaemon。k
 
 ## 安装
 
-正式安装：`node scripts/pack.mjs` 产出 `releases/github-hanako-v0.1.0.zip`（+`.sha256`）→ 拖入宿主插件安装。开发冒烟：`plugin.dev.install`（full-access 授权）装 dev 槽，数据目录为 `plugin-data/dev/github-hanako`。
+正式安装：`node scripts/pack.mjs` 产出 `releases/github-hanako-v<version>.zip`（+`.sha256`，version 取自 manifest.json）→ 拖入宿主插件安装。开发冒烟：`plugin.dev.install`（full-access 授权）装 dev 槽，数据目录为 `plugin-data/dev/github-hanako`。
 
 ## 开发结构
 

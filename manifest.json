@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "github-hanako",
   "name": "GitHana",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Git & GitHub tools for HanaAgent",
   "author": "Nyaser",
   "minAppVersion": "0.810.0",
