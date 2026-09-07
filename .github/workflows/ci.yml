@@ -104,6 +104,21 @@ jobs:
         with:
           node-version: 22
 
+      # tag 与 manifest version 一致性校验：pack 产物名来自 manifest，verify 按 tag 期待
+      # 资产名——tag/manifest 不一致会在 verify 误删 release，这里 fail-fast
+      - name: Validate tag matches manifest version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          VER=$(node -p "require('./manifest.json').version")
+          EXPECT="v$VER"
+          if [ "$TAG" != "$EXPECT" ]; then
+            echo "::error::tag $TAG 与 manifest version $VER 不一致（应为 $EXPECT）"
+            exit 1
+          fi
+          echo "tag $TAG matches manifest version $VER"
+
       - name: Cache vendor
         uses: actions/cache@v4
         with:
@@ -124,6 +139,7 @@ jobs:
       # 打包成功才建 release（避免打包失败留下无资产的空 release）；已存在则跳过。
       # TAG 经 env 传入（github.ref_name 可含引号/分号等字符，直接拼 shell 有注入面）
       - name: Create release
+        id: create
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -159,9 +175,15 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -e
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release $TAG 不存在（此前步骤未建 release），无需清理"
+          # Create release 未执行成功（fetch/package 失败在 create 前）→ 无 release 需清理
+          if [ "${{ steps.create.outcome }}" != "success" ]; then
+            echo "create-release 未执行（此前步骤失败），无残缺 release"
             exit 0
+          fi
+          # create 成功则 release 必存在；view 失败 = API 错误，propagate（不误判不存在）
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::release $TAG 查询失败（create 已成功但 view 报错）"
+            exit 1
           fi
           # 资产名 = pkgId + "-v" + version（pack.mjs），version 段带 v 前缀与 tag 一致
           # 如 tag v0.1.1 → github-hanako-v0.1.1.zip（勿用 ${TAG#v} 去 v——曾致误判删 release）
