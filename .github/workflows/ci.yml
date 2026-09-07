@@ -1,20 +1,25 @@
-# CI — 语法/结构冒烟 + 完整打包验证（零依赖，无 pnpm install）
+# CI — 统一流程（条件分流，避免发版重复打包）
 #
-# 触发: PR + push master
+# 触发事件按场景分流（jobs 用 if 条件，单 workflow 覆盖全部）：
+#   - pull_request          → check + pack（打包验证，PR 期保证打包链健康）
+#   - push master（无 tag）  → check only（打包已由 PR 期 pack 验证，不发版不重复打）
+#   - push tag v*           → check + release（完整发版链，打包唯一发生点）
+#   - workflow_dispatch     → check + pack（手动出包，产 artifact）
 #
-# jobs:
-#   check: node --check 全部 js/mjs + manifest/skills 结构断言（快，秒级）
-#   pack-smoke: 完整打包链冒烟——fetch-vendor（cache 命中秒过）+ pack（产 zip/sha256）
-#     vendor 下载走 actions/cache（key 含 fetch-vendor.mjs hash：脚本变才重拉），
-#     PR 期即验证打包不坏，避免 tag 发版时才暴露
+# 为什么合一：此前 ci.yml + release.yml 双 workflow，发版时 push --atomic 同时推
+# master（触发 CI 的 pack-smoke）与 tag（触发 Release 的 build）→ 同一次发版打包两遍。
+# 合一后 tag 场景 release job 是唯一打包点，branch push run 只跑 check（~6s）。
 name: CI
 
 on:
   pull_request:
   push:
     branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
 
 jobs:
+  # ---- 全场景共用：语法/结构冒烟（秒级） ----
   check:
     runs-on: ubuntu-latest
     steps:
@@ -36,16 +41,18 @@ jobs:
           node -e "const m=require('./manifest.json'); if(!m.id||!m.version) process.exit(1); console.log('manifest ok:', m.id, m.version)"
           test -f skills/gh/SKILL.md && echo "skills/gh ok"
 
-  pack-smoke:
-    runs-on: ubuntu-latest
+  # ---- PR / 手动：打包验证（产 artifact，3 天窗口） ----
+  pack:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     needs: check
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
 
-      # vendor 缓存：key 随 fetch-vendor.mjs（VERSIONS 表）变化，命中则免下载免解压
+      # vendor 缓存：key 随 fetch-vendor.mjs（VERSIONS 表）变化，命中免下载免解压
       - name: Cache vendor
         uses: actions/cache@v4
         with:
@@ -61,7 +68,7 @@ jobs:
       - name: Fetch vendor (git + gh + gnupg)
         run: node scripts/fetch-vendor.mjs
 
-      - name: Pack smoke
+      - name: Pack
         run: node scripts/pack.mjs
 
       - name: Verify package contents
@@ -72,3 +79,90 @@ jobs:
           [ -f "$ZIP.sha256" ] || { echo "::error::no sha256 produced"; exit 1; }
           unzip -l "$ZIP" | grep -q "skills/gh/SKILL.md" && echo "skills/gh/SKILL.md in package"
           unzip -l "$ZIP" | grep -q "vendor/gnupg/bin/gpg.exe" && echo "vendor gnupg in package"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: github-hanako-package
+          retention-days: 3
+          path: releases/github-hanako-*.zip*
+          if-no-files-found: error
+
+  # ---- tag：完整发版链（打包唯一发生点，不再与 CI 重复） ----
+  release:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # 先建 release（pre-release，不占 latest；已存在跳过）
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            echo "Release ${{ github.ref_name }} already exists, skipping create"
+          else
+            gh release create "${{ github.ref_name }}" \
+              --prerelease \
+              --title "${{ github.ref_name }}" \
+              --generate-notes
+          fi
+
+      - name: Cache vendor
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor
+            _tmp/vendor-dl
+          key: vendor-${{ hashFiles('scripts/fetch-vendor.mjs') }}
+
+      - name: Install 7z
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Fetch vendor (git + gh + gnupg)
+        run: node scripts/fetch-vendor.mjs
+
+      - name: Package
+        run: node scripts/pack.mjs
+
+      - name: Upload release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          cd releases
+          ZIP=$(ls github-hanako-*.zip | head -1)
+          [ -n "$ZIP" ] || { echo "::error::no package zip found in releases/"; exit 1; }
+          gh release upload "${{ github.ref_name }}" "$ZIP" "$ZIP.sha256" --clobber
+
+      # 单点收尾：资产齐全才留 release，缺则删并 fail（公开 release 不留残缺）
+      - name: Verify release assets complete
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="${{ github.ref_name }}"
+          # 资产名 = pkgId + "-v" + version（pack.mjs），version 段带 v 前缀与 tag 一致
+          # 如 tag v0.1.1 → github-hanako-v0.1.1.zip（勿用 ${TAG#v} 去 v——曾致误判删 release）
+          ZIP="github-hanako-$TAG.zip"
+          if ! gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx "$ZIP"; then
+            echo "::error::release $TAG missing asset $ZIP"
+            gh release delete "$TAG" --yes
+            exit 1
+          fi
+          if ! gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx "$ZIP.sha256"; then
+            echo "::error::release $TAG missing asset $ZIP.sha256"
+            gh release delete "$TAG" --yes
+            exit 1
+          fi
+          echo "release $TAG assets complete: $ZIP + $ZIP.sha256"
