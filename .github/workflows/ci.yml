@@ -121,17 +121,19 @@ jobs:
       - name: Package
         run: node scripts/pack.mjs
 
-      # 打包成功才建 release（避免打包失败留下无资产的空 release）；已存在则跳过
+      # 打包成功才建 release（避免打包失败留下无资产的空 release）；已存在则跳过。
+      # TAG 经 env 传入（github.ref_name 可含引号/分号等字符，直接拼 shell 有注入面）
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
-          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
-            echo "Release ${{ github.ref_name }} already exists, skipping create"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, skipping create"
           else
-            gh release create "${{ github.ref_name }}" \
+            gh release create "$TAG" \
               --prerelease \
-              --title "${{ github.ref_name }}" \
+              --title "$TAG" \
               --generate-notes
           fi
 
@@ -139,20 +141,28 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -e
           cd releases
           ZIP=$(ls github-hanako-*.zip | head -1)
           [ -n "$ZIP" ] || { echo "::error::no package zip found in releases/"; exit 1; }
-          gh release upload "${{ github.ref_name }}" "$ZIP" "$ZIP.sha256" --clobber
+          gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber
 
-      # 单点收尾：资产齐全才留 release，缺则删并 fail（公开 release 不留残缺）
+      # 单点收尾：资产齐全才留 release，缺则删并 fail（公开 release 不留残缺）。
+      # !cancelled() 兜底：upload 失败（set -e 中断）也会执行清理；release 未建
+      # （package/fetch 失败发生在 create 前）→ 无残缺，正常退出不误报
       - name: Verify release assets complete
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -e
-          TAG="${{ github.ref_name }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG 不存在（此前步骤未建 release），无需清理"
+            exit 0
+          fi
           # 资产名 = pkgId + "-v" + version（pack.mjs），version 段带 v 前缀与 tag 一致
           # 如 tag v0.1.1 → github-hanako-v0.1.1.zip（勿用 ${TAG#v} 去 v——曾致误判删 release）
           ZIP="github-hanako-$TAG.zip"
