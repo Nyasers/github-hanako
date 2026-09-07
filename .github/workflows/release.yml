@@ -114,7 +114,9 @@ jobs:
         run: |
           set -e
           TAG="${{ github.ref_name }}"
-          ZIP="github-hanako-${TAG#v}.zip"
+          # 资产名 = pkgId + "-v" + version（pack.mjs），version 段带 v 前缀与 tag 一致
+          # 如 tag v0.1.1 → github-hanako-v0.1.1.zip（勿用 ${TAG#v} 去 v——曾致误判删 release）
+          ZIP="github-hanako-$TAG.zip"
           if ! gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx "$ZIP"; then
             echo "::error::release $TAG missing asset $ZIP"
             gh release delete "$TAG" --yes
