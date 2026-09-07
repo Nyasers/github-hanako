@@ -90,7 +90,8 @@ jobs:
 
   # ---- tag：完整发版链（打包唯一发生点，不再与 CI 重复） ----
   release:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    # 仅真实 tag push 触发（dispatch 可指 tag ref，会误覆盖 release 资产 → 排除）
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     needs: check
     runs-on: ubuntu-latest
     permissions:
@@ -102,20 +103,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-
-      # 先建 release（pre-release，不占 latest；已存在跳过）
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
-            echo "Release ${{ github.ref_name }} already exists, skipping create"
-          else
-            gh release create "${{ github.ref_name }}" \
-              --prerelease \
-              --title "${{ github.ref_name }}" \
-              --generate-notes
-          fi
 
       - name: Cache vendor
         uses: actions/cache@v4
@@ -133,6 +120,20 @@ jobs:
 
       - name: Package
         run: node scripts/pack.mjs
+
+      # 打包成功才建 release（避免打包失败留下无资产的空 release）；已存在则跳过
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            echo "Release ${{ github.ref_name }} already exists, skipping create"
+          else
+            gh release create "${{ github.ref_name }}" \
+              --prerelease \
+              --title "${{ github.ref_name }}" \
+              --generate-notes
+          fi
 
       - name: Upload release assets
         shell: bash
