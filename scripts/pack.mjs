@@ -29,7 +29,7 @@ const pkgDirName = pkgId + "-v" + version;
 // ---- 交付清单：静态项直接复制（无 build / 无 minify） ----
 // v3 形态：index.js（entry 注册卡路由）+ routes/ + assets/（pubkey 卡页）随包分发；
 // 无 recipes/（v1 recipe 手动部署方案已废弃，rebuild spec §8.4）
-const staticItems = ["manifest.json", "README.md", "LICENSE", "NOTICE", "index.js", "tools", "routes", "assets"];
+const staticItems = ["manifest.json", "README.md", "LICENSE", "NOTICE", "index.js", "tools", "routes", "assets", "skills"];
 // 内嵌运行时（vendor/，fetch-vendor.mjs 下载，不入库）：存在则随包分发（自包含安装包）
 const vendorDir = join(ROOT, "vendor");
 if (fs.existsSync(vendorDir)) {
