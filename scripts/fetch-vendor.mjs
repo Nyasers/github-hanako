@@ -32,7 +32,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const CACHE_DIR = join(ROOT, "_tmp", "vendor-dl"); // 下载缓存（_tmp 不入库，可随时清）
+const CACHE_DIR = join(ROOT, ".tmp", "vendor-dl"); // 下载缓存（.tmp 不入库，可随时清）
 
 /**
  * 内嵌运行时清单：版本单一事实源。
@@ -131,7 +131,7 @@ async function fetchOne(key, spec) {
   //    tar 均支持 zip）；gnupg 是 NSIS/7z 容器（scoop 同源），需要 7z，只取 bin/
   mkdirSync(spec.destDir, { recursive: true });
   if (spec.extract === "gnupg7z") {
-    const tmp = join(ROOT, "_tmp", "gnupg-x");
+    const tmp = join(ROOT, ".tmp", "gnupg-x");
     rmSync(tmp, { recursive: true, force: true });
     mkdirSync(tmp, { recursive: true });
     execFileSync("7z", ["x", cacheZip, "-o" + tmp, "-y"], { stdio: "inherit" });

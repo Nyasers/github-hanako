@@ -6,7 +6,7 @@
 // 设计：
 // - 版本单一事实源：manifest.json 的 version（零 npm 依赖，不搞双版本源）
 // - 无 build / 无 minify：纯 js 保持可读不压缩
-// - 静态项复制到铺平目录 _tmp/pkg/<id>-v<version>/：
+// - 静态项复制到铺平目录 .tmp/pkg/<id>-v<version>/：
 //   manifest.json、README.md、index.js（entry）、tools/（含 lib/）、routes/（卡页 route）、
 //   assets/（卡页静态资源）——v3 形态：会话流路由卡（details.card），不再分发 recipes/
 //   LICENSE + NOTICE：MPL-2.0（参照 dsh-hanako），随包分发
@@ -39,7 +39,7 @@ if (fs.existsSync(vendorDir)) {
   console.warn("[pack] 警告：vendor/ 不存在，安装包不含内嵌 git/gh/gnupg（先运行 node scripts/fetch-vendor.mjs 与 gnupg 置备）");
 }
 
-const flattenDir = join(ROOT, "_tmp", "pkg", pkgDirName);
+const flattenDir = join(ROOT, ".tmp", "pkg", pkgDirName);
 fs.rmSync(flattenDir, { recursive: true, force: true });
 fs.mkdirSync(flattenDir, { recursive: true });
 
