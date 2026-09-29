@@ -58,7 +58,7 @@ jobs:
         with:
           path: |
             vendor
-            _tmp/vendor-dl
+            .tmp/vendor-dl
           key: vendor-${{ hashFiles('scripts/fetch-vendor.mjs') }}
 
       # fetch-vendor 的 gnupg 条目解压依赖 7z（本地 scoop 7zip / CI p7zip）
@@ -124,7 +124,7 @@ jobs:
         with:
           path: |
             vendor
-            _tmp/vendor-dl
+            .tmp/vendor-dl
           key: vendor-${{ hashFiles('scripts/fetch-vendor.mjs') }}
 
       - name: Install 7z
